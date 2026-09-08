@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice Dictation</title>
+<style>
+  :root {
+    --ink: #1a2332;
+    --ink-soft: #5b6472;
+    --line: #dfe3e8;
+    --accent: #c1440e;
+    --good: #1e7a4c;
+    --good-soft: #e6f4ec;
+    --bad: #b3261e;
+    --bad-soft: #fbe9e8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    background: #fafbfc;
+    color: var(--ink);
+    padding: 24px 20px;
+    text-align: center;
+  }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  p.hint { font-size: 12.5px; color: var(--ink-soft); margin: 0 0 22px; line-height: 1.4; }
+
+  #micBtn {
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 14px;
+  }
+  #micBtn.listening { background: var(--bad); animation: pulse 1s infinite; }
+  #micBtn:disabled { background: var(--line); cursor: default; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+  #status { font-size: 13px; color: var(--ink-soft); margin-bottom: 18px; min-height: 18px; }
+
+  #transcript {
+    width: 100%;
+    min-height: 110px;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+    margin-bottom: 14px;
+  }
+  #transcript:focus { outline: none; border-color: var(--accent); }
+
+  #sendBtn {
+    width: 100%;
+    padding: 13px;
+    border-radius: 8px;
+    border: none;
+    background: var(--good);
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #sendBtn:disabled { opacity: 0.5; cursor: default; }
+
+  #errorMsg {
+    color: var(--bad);
+    background: var(--bad-soft);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12.5px;
+    margin-top: 12px;
+    display: none;
+    text-align: left;
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+  <h1>Voice Dictation</h1>
+  <p class="hint">Tap the mic, speak, then send it back to your notes.</p>
+
+  <button id="micBtn" aria-label="Start or stop dictation">
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z"/>
+      <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+      <line x1="12" y1="19" x2="12" y2="22"/>
+    </svg>
+  </button>
+  <div id="status">Tap to start</div>
+
+  <textarea id="transcript" placeholder="Your words will appear here..."></textarea>
+  <button id="sendBtn" disabled>Send to Notes</button>
+  <div id="errorMsg"></div>
+
+<script>
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById('micBtn');
+const statusEl = document.getElementById('status');
+const transcriptEl = document.getElementById('transcript');
+const sendBtn = document.getElementById('sendBtn');
+const errorMsg = document.getElementById('errorMsg');
+
+function showError(text) {
+  errorMsg.style.display = 'block';
+  errorMsg.textContent = text;
+}
+
+if (!SpeechRecognitionAPI) {
+  statusEl.textContent = 'Voice dictation needs Chrome or Edge.';
+  micBtn.disabled = true;
+} else {
+  let recognition = null;
+  let listening = false;
+
+  micBtn.addEventListener('click', () => {
+    if (listening) {
+      recognition.stop();
+      return;
+    }
+    recognition = new SpeechRecognitionAPI();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.continuous = true;
+
+    recognition.onstart = () => {
+      listening = true;
+      micBtn.classList.add('listening');
+      statusEl.textContent = 'Listening... tap again to stop';
+    };
+    recognition.onerror = (e) => {
+      listening = false;
+      micBtn.classList.remove('listening');
+      statusEl.textContent = 'Tap to start';
+      showError('Microphone error: ' + e.error + '. Check this page has microphone permission, then try again.');
+    };
+    recognition.onend = () => {
+      listening = false;
+      micBtn.classList.remove('listening');
+      statusEl.textContent = 'Tap to start';
+    };
+    recognition.onresult = (event) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) transcript += event.results[i][0].transcript;
+      }
+      if (transcript.trim()) {
+        const sep = transcriptEl.value.trim() ? ' ' : '';
+        transcriptEl.value = transcriptEl.value.trim() + sep + transcript.trim();
+        sendBtn.disabled = !transcriptEl.value.trim();
+      }
+    };
+    recognition.start();
+  });
+}
+
+transcriptEl.addEventListener('input', () => {
+  sendBtn.disabled = !transcriptEl.value.trim();
+});
+
+sendBtn.addEventListener('click', () => {
+  if (window.opener) {
+    window.opener.postMessage({ type: 'dictation-result', text: transcriptEl.value.trim() }, '*');
+    window.close();
+  } else {
+    showError('Could not find the page that opened this window — copy your text manually and paste it in.');
+  }
+});
+</script>
+</body>
+</html>
